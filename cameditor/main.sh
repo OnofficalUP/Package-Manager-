@@ -1,113 +1,198 @@
 #!/usr/bin/env bash
 
-set -eu
+set -u
 
-GK_REPO="https://github.com/OnofficalUP/Package-Manager-"
-GK_RAW="https://raw.githubusercontent.com/OnofficalUP/Package-Manager-/main"
-GK_HOME="${GK_HOME:-$HOME/.gk}"
-GK_BIN="${GK_BIN:-$HOME/.local/bin}"
+VERSION="1.0.0"
+CONFIG="$HOME/.gkrc"
 
-mkdir -p "$GK_HOME/packages" "$GK_BIN"
+# ----------------------------------------
+# CONFIGURATION
+# ----------------------------------------
 
-usage() {
-    cat <<'EOF'
-GK Package Manager
+COMPANY="NIL"
 
-Usage:
-  gk list
-  gk install <package>
-  gk update <package>
-  gk remove <package>
-  gk help
+# Parse only the company setting.
+# Do not source ~/.gkrc as executable code.
+if [ -f "$CONFIG" ]; then
+    value="$(
+        sed -n \
+            's/^[[:space:]]*Company_Name="[[:space:]]*\(.*\)"[[:space:]]*$/\1/p' \
+            "$CONFIG" | head -n 1
+    )"
 
-Packages:
-  cameditor    Lightweight terminal text editor
-EOF
-}
+    [ -n "$value" ] && COMPANY="$value"
+fi
 
-install_package() {
-    package="${1:-}"
+# ----------------------------------------
+# ARGUMENTS
+# ----------------------------------------
 
-    if [ -z "$package" ]; then
-        echo "Usage: gk install <package>"
+FILE="${1:-}"
+
+if [ -z "$FILE" ]; then
+    echo "Cameditor v$VERSION"
+    echo "Lightweight terminal text editor"
+    echo
+    echo "Usage: cam <file>"
+    exit 1
+fi
+
+# ----------------------------------------
+# VALIDATION
+# ----------------------------------------
+
+if [ -d "$FILE" ]; then
+    echo "ERROR: '$FILE' is a directory."
+    exit 1
+fi
+
+PARENT="$(dirname "$FILE")"
+
+if [ ! -d "$PARENT" ]; then
+    echo "ERROR: Directory does not exist: $PARENT"
+    exit 1
+fi
+
+# ----------------------------------------
+# TEMPORARY WORKSPACE
+# ----------------------------------------
+
+TMP="$(mktemp)" || exit 1
+trap 'rm -f "$TMP"' EXIT
+
+if [ -f "$FILE" ]; then
+    if ! cat "$FILE" > "$TMP"; then
+        echo "ERROR: Cannot read $FILE"
         exit 1
     fi
+fi
 
-    case "$package" in
-        cameditor)
-            url="$GK_RAW/cameditor/Installer.sh"
+# ----------------------------------------
+# HEADER
+# ----------------------------------------
+
+clear 2>/dev/null || true
+
+printf '\n'
+printf '  =====================================\n'
+printf '             CAMEDITOR %s\n' "$VERSION"
+printf '  =====================================\n'
+printf '  File:    %s\n' "$FILE"
+printf '  Company: %s\n' "$COMPANY"
+printf '  -------------------------------------\n'
+printf '  Commands:\n'
+printf '    :p     Show current document\n'
+printf '    :a     Append text\n'
+printf '    :c     Clear document\n'
+printf '    :w     Save\n'
+printf '    :wq    Save and quit\n'
+printf '    :q     Quit without saving\n'
+printf '    :help  Show help\n'
+printf '  =====================================\n'
+
+# ----------------------------------------
+# DISPLAY DOCUMENT
+# ----------------------------------------
+
+show_document() {
+    printf '\n'
+    printf '%s\n' '  ------------ DOCUMENT ---------------'
+
+    if [ -s "$TMP" ]; then
+        awk '{ printf "  %4d | %s\n", NR, $0 }' "$TMP"
+    else
+        printf '  (empty document)\n'
+    fi
+
+    printf '%s\n' '  -------------------------------------'
+}
+
+show_document
+
+# ----------------------------------------
+# EDITOR LOOP
+# ----------------------------------------
+
+while true; do
+    printf '\ncam:%s> ' "$FILE"
+
+    if ! IFS= read -r LINE; then
+        printf '\nLeaving editor without saving.\n'
+        break
+    fi
+
+    case "$LINE" in
+        :help)
+            printf '\nCommands:\n'
+            printf '  :p     Display the document\n'
+            printf '  :a     Append multiple lines\n'
+            printf '  :c     Clear all text\n'
+            printf '  :w     Save changes\n'
+            printf '  :wq    Save and quit\n'
+            printf '  :q     Quit without saving\n'
             ;;
+
+        :p)
+            show_document
+            ;;
+
+        :a)
+            printf 'Enter text. Type a single . on a line to finish.\n'
+
+            while true; do
+                printf '  | '
+
+                if ! IFS= read -r TEXT; then
+                    break
+                fi
+
+                [ "$TEXT" = "." ] && break
+
+                printf '%s\n' "$TEXT" >> "$TMP"
+            done
+            ;;
+
+        :c)
+            printf 'Clear the entire document? Type YES to confirm: '
+            IFS= read -r CONFIRM || break
+
+            if [ "$CONFIRM" = "YES" ]; then
+                : > "$TMP"
+                printf 'Document cleared. Save with :w.\n'
+            else
+                printf 'Cancelled.\n'
+            fi
+            ;;
+
+        :w)
+            if cat "$TMP" > "$FILE"; then
+                printf 'Saved: %s\n' "$FILE"
+            else
+                printf 'ERROR: Could not save file.\n'
+            fi
+            ;;
+
+        :wq)
+            if cat "$TMP" > "$FILE"; then
+                printf 'Saved: %s\n' "$FILE"
+                break
+            else
+                printf 'ERROR: Could not save file.\n'
+            fi
+            ;;
+
+        :q)
+            printf 'Unsaved changes will be discarded. Type YES to confirm: '
+            IFS= read -r CONFIRM || break
+
+            if [ "$CONFIRM" = "YES" ]; then
+                printf 'Leaving Cameditor.\n'
+                break
+            fi
+            ;;
+
         *)
-            echo "Package not found: $package"
-            exit 1
+            printf 'Unknown command. Type :help for commands.\n'
             ;;
     esac
-
-    if command -v curl >/dev/null 2>&1; then
-        downloader="curl"
-    elif command -v wget >/dev/null 2>&1; then
-        downloader="wget"
-    else
-        echo "Install curl or wget first."
-        exit 1
-    fi
-
-    tmp="$(mktemp)"
-    trap 'rm -f "$tmp"' EXIT
-
-    echo "Downloading $package installer..."
-
-    if [ "$downloader" = "curl" ]; then
-        curl -fLsS "$url" -o "$tmp"
-    else
-        wget -q "$url" -O "$tmp"
-    fi
-
-    echo "Running $package installer..."
-    bash "$tmp"
-}
-
-case "${1:-help}" in
-    list)
-        echo "GK Package Manager"
-        echo
-        echo "Available packages:"
-        echo "  cameditor - Lightweight terminal text editor"
-        ;;
-
-    install)
-        shift
-        install_package "${1:-}"
-        ;;
-
-    update)
-        shift
-        install_package "${1:-}"
-        ;;
-
-    remove)
-        package="${2:-}"
-
-        case "$package" in
-            cameditor)
-                rm -f "$GK_BIN/cam"
-                rm -rf "$GK_HOME/packages/cameditor"
-                echo "Cameditor removed."
-                ;;
-            *)
-                echo "Unknown package: $package"
-                exit 1
-                ;;
-        esac
-        ;;
-
-    help|-h|--help)
-        usage
-        ;;
-
-    *)
-        echo "Unknown command: $1"
-        usage
-        exit 1
-        ;;
-esac
+done

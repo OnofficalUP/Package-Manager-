@@ -1,138 +1,113 @@
-
 #!/usr/bin/env bash
 
-set -u
+set -eu
 
-VERSION="1.0.0"
-CONFIG="$HOME/.gkrc"
-BIN_DIR="$HOME/.local/bin"
+GK_REPO="https://github.com/OnofficalUP/Package-Manager-"
+GK_RAW="https://raw.githubusercontent.com/OnofficalUP/Package-Manager-/main"
+GK_HOME="${GK_HOME:-$HOME/.gk}"
+GK_BIN="${GK_BIN:-$HOME/.local/bin}"
 
-# Load user configuration.
-if [ -f "$CONFIG" ]; then
-    source "$CONFIG"
-fi
+mkdir -p "$GK_HOME/packages" "$GK_BIN"
 
-# Package manager.
+usage() {
+    cat <<'EOF'
+GK Package Manager
+
+Usage:
+  gk list
+  gk install <package>
+  gk update <package>
+  gk remove <package>
+  gk help
+
+Packages:
+  cameditor    Lightweight terminal text editor
+EOF
+}
+
+install_package() {
+    package="${1:-}"
+
+    if [ -z "$package" ]; then
+        echo "Usage: gk install <package>"
+        exit 1
+    fi
+
+    case "$package" in
+        cameditor)
+            url="$GK_RAW/cameditor/Installer.sh"
+            ;;
+        *)
+            echo "Package not found: $package"
+            exit 1
+            ;;
+    esac
+
+    if command -v curl >/dev/null 2>&1; then
+        downloader="curl"
+    elif command -v wget >/dev/null 2>&1; then
+        downloader="wget"
+    else
+        echo "Install curl or wget first."
+        exit 1
+    fi
+
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
+
+    echo "Downloading $package installer..."
+
+    if [ "$downloader" = "curl" ]; then
+        curl -fLsS "$url" -o "$tmp"
+    else
+        wget -q "$url" -O "$tmp"
+    fi
+
+    echo "Running $package installer..."
+    bash "$tmp"
+}
+
 case "${1:-help}" in
     list)
-        echo "GK Package Manager v$VERSION"
+        echo "GK Package Manager"
         echo
         echo "Available packages:"
         echo "  cameditor - Lightweight terminal text editor"
         ;;
 
     install)
-        PACKAGE="${2:-}"
-
-        if [ "$PACKAGE" = "cameditor" ]; then
-            echo "Cameditor is installed with Installer.sh."
-            echo "Run Installer.sh from the cloned repository:"
-            echo "  bash Installer.sh"
-        else
-            echo "Usage: gk install cameditor"
-        fi
-        ;;
-
-    help)
-        echo "GK Package Manager v$VERSION"
-        echo
-        echo "Commands:"
-        echo "  gk list"
-        echo "  gk install cameditor"
-        echo "  gk edit <file>"
-        echo "  cam <file>"
-        echo "  gk help"
-        exit 0
-        ;;
-
-    edit)
         shift
+        install_package "${1:-}"
+        ;;
+
+    update)
+        shift
+        install_package "${1:-}"
+        ;;
+
+    remove)
+        package="${2:-}"
+
+        case "$package" in
+            cameditor)
+                rm -f "$GK_BIN/cam"
+                rm -rf "$GK_HOME/packages/cameditor"
+                echo "Cameditor removed."
+                ;;
+            *)
+                echo "Unknown package: $package"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    help|-h|--help)
+        usage
         ;;
 
     *)
         echo "Unknown command: $1"
-        echo "Run 'gk help' for usage."
+        usage
         exit 1
         ;;
 esac
-
-# If the command was a package-manager command, stop here.
-if [ "${1:-}" != "edit" ]; then
-    exit 0
-fi
-
-# Editor.
-shift
-
-FILE="${1:-}"
-
-if [ -z "$FILE" ]; then
-    echo "Cameditor - Lightweight Text Editor"
-    echo "Usage: cam <file>"
-    exit 1
-fi
-
-# Read the configuration without executing it as shell code.
-if [ -f "$FILE" ]; then
-    ORIGINAL="$(cat "$FILE")"
-else
-    ORIGINAL=""
-fi
-
-TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
-
-printf '%s\n' "$ORIGINAL" > "$TMP"
-
-clear 2>/dev/null || true
-
-echo "================================"
-echo "          CAMEDITOR"
-echo "================================"
-echo "File: $FILE"
-echo "Company: ${Company_Name:-NIL}"
-echo "--------------------------------"
-echo "Type your text below."
-echo "Commands:"
-echo "  :w  - Save"
-echo "  :q  - Quit"
-echo "  :wq - Save and quit"
-echo "--------------------------------"
-
-# Use a temporary file so the original is preserved until saving.
-while true; do
-    echo
-    printf "cam> "
-
-    if ! IFS= read -r LINE; then
-        break
-    fi
-
-    case "$LINE" in
-        :w)
-            if cat "$TMP" > "$FILE"; then
-                echo "Saved: $FILE"
-            else
-                echo "Error saving file."
-            fi
-            ;;
-
-        :q)
-            echo "Exiting Cameditor."
-            break
-            ;;
-
-        :wq)
-            if cat "$TMP" > "$FILE"; then
-                echo "Saved: $FILE"
-                break
-            else
-                echo "Error saving file."
-            fi
-            ;;
-
-        *)
-            printf '%s\n' "$LINE" >> "$TMP"
-            ;;
-    esac
-done

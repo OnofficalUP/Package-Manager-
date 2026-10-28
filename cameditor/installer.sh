@@ -1,62 +1,34 @@
 #!/usr/bin/env bash
+
 set -eu
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="$HOME/.local/bin"
-CONFIG="$HOME/.gkrc"
+REPO="https://raw.githubusercontent.com/OnofficalUP/Package-Manager-/main"
+BIN="$HOME/.local/bin"
+GK_HOME="$HOME/.gk"
 
-mkdir -p "$BIN_DIR"
+mkdir -p "$BIN" "$GK_HOME"
 
-if [ ! -f "$REPO_DIR/main.sh" ]; then
-    echo "ERROR: main.sh not found."
+if command -v curl >/dev/null 2>&1; then
+    curl -fLsS "$REPO/main.sh" -o "$BIN/gk"
+elif command -v wget >/dev/null 2>&1; then
+    wget -q "$REPO/main.sh" -O "$BIN/gk"
+else
+    echo "Please install curl or wget."
     exit 1
 fi
 
-# Install the editor and package manager.
-cp "$REPO_DIR/main.sh" "$BIN_DIR/gk"
-chmod +x "$BIN_DIR/gk"
+chmod +x "$BIN/gk"
 
-# Install the cam command.
-cat > "$BIN_DIR/cam" <<'LAUNCHER'
-#!/usr/bin/env bash
-exec "$HOME/.local/bin/gk" edit "$@"
-LAUNCHER
-
-chmod +x "$BIN_DIR/cam"
-
-# Create default configuration.
-if [ ! -f "$CONFIG" ]; then
-    cat > "$CONFIG" <<'CONFIG'
-# Chooses Random Theme For Cameditor
-Syntax_Colors=("green" "cyan" "yellow")
-Syntax=("plain" "shell" "text")
-
-# Chooses Syntax And Syntax Color
-Company-Name="NIL"
-
-# Keyboard shortcuts
-Save="ctrl-O"
-quit="ctrl-X"
-
-# SIMPLIFIED TEXT EDITOR FOR YOU !!
-CONFIG
-fi
-
-# Add local binaries to PATH when possible.
-for RC in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    if [ -f "$RC" ] && ! grep -Fq '.local/bin' "$RC"; then
-        printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$RC"
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc" ] && ! grep -Fq '.local/bin' "$rc"; then
+        printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
     fi
 done
 
+echo "GK Package Manager installed!"
 echo
-echo "================================"
-echo "       GK INSTALLER"
-echo "================================"
-echo "Cameditor installed successfully!"
-echo "Package manager: gk"
-echo "Text editor:     cam <file>"
-echo "Configuration:   ~/.gkrc"
+echo "Run:"
+echo "  $BIN/gk list"
 echo
-echo "If commands are not found, run:"
-echo 'export PATH="$HOME/.local/bin:$PATH"'
+echo "If gk is not found, run:"
+echo '  export PATH="$HOME/.local/bin:$PATH"'
